@@ -13,12 +13,26 @@ def prediction_reward(y_true, y_preds):
         return 'profit', costs, True
     
     
+########### FUNCTION FOR PROFIT MEASURE WITH CUTOFF PARAMETER
+
+# can use after modeling for threshold optimization
+# computation same as prediction_reward()
+
+from sklearn.metrics import confusion_matrix
+def recompute_reward(y_true, y_preds, cutoff = 0.5):
+        preds_labels = y_preds > cutoff
+        tn, fp, fn, tp = confusion_matrix(y_true = y_true, y_pred = preds_labels).ravel()
+        costs = tn*0.0 + fp*(-25.0) + fn*(-5.0) + tp*(5.0)
+        return costs
+    
+    
     
     
 ########### FUNCTION FOR COUNTING MISSINGS
 
 # computes missings per variable (count, %)
 # displays variables with most missings
+
 import pandas as pd
 def count_missings(data):
     total = data.isnull().sum().sort_values(ascending = False)
