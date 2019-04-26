@@ -64,6 +64,39 @@ def count_missings(data):
     return table
 
 
+########### FUNCTION FOR TEST TIME AUGMENTATION
+
+# creates multiple versionf of test data (with noise)
+# averages predictions over the created samples
+
+def predict_proba_with_tta(X_test, model, num_iteration, alpha = 0.01, n = 4, seed = 0):
+    
+    # set random seed
+    np.random.seed(seed = seed)
+    
+    # original prediction
+    preds = model.predict_proba(X_test, num_iteration = num_iteration)[:, 1] / (n + 1)
+     
+    # select numeric features
+    num_vars = [var for var in X_test.columns if X_test[var].dtype != "object"]
+    
+    # synthetic predictions
+    for i in range(n):
+        
+        # copy data
+        X_new = X_test.copy()
+                  
+        # introduce noise
+        for var in num_vars:
+            X_new[var] = X_new[var] + alpha * np.random.normal(0, 1, size = len(X_new)) * X_new[var].std()
+            
+        # predict probss
+        preds_new = model.predict_proba(X_new, num_iteration = num_iteration)[:, 1]
+        preds += preds_new / (n + 1)
+    
+    # return probs
+    return preds
+
 
 
 
@@ -133,3 +166,7 @@ def mean_target_encoding(train, valid, test, features, target, folds = 5):
 
     # return data
     return train, valid, tmp_test
+
+
+
+
