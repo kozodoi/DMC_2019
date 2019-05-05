@@ -169,4 +169,23 @@ def mean_target_encoding(train, valid, test, features, target, folds = 5):
 
 
 
+########### CLASS FOR CUSTOM METRIC FOR CATBOOSTCLASSIFIER
 
+# set catboost.CatBoostClassifier(...,eval_metrics = CustomMetric(),...)
+import numpy as np
+class CustomMetric(object):
+    def get_final_error(self, error, weight):
+        return error
+
+    def is_max_optimal(self):
+        return True
+
+    def evaluate(self, approxes, target, weight):
+        # approxes - list of list-like objects (one object per approx dimension)
+        # target - list-like object
+        # weight - list-like object, can be None
+        
+        y_true = np.array([int(i) for i in target])
+        y_preds = np.array([i for i in approxes[0]])
+        res = prediction_reward(y_true, y_preds)[1]
+        return res, 0
