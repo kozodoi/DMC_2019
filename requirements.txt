@@ -7,5 +7,3 @@ scikit-learn
 pandas 
 scipy 
 git
-imblearn
-catboost
