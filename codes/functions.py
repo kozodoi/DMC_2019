@@ -189,3 +189,60 @@ class CustomMetric(object):
         y_preds = np.array([i for i in approxes[0]])
         res = prediction_reward(y_true, y_preds)[1]
         return res, 0
+
+### Custom loss function for lightgbm
+
+import numpy as np
+import pandas as pd
+def dist(x,y):
+    return (x-y)**2
+def dist_grad(x,y):
+    return -2*(x-y)
+def dist_hess(x,y):
+    return 2 + y * 0 
+
+if False:
+    def dist(x,y):
+        return np.abs(x-y)
+    def dist_grad(x,y):
+        return np.sign(x-y)
+    def dist_hess(x,y):
+        return y * 0
+
+def custom_loss(y_true, y_pred):
+    eps = 10**(-4)
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
+    y_pred = np.where(y_pred<1, y_pred, 1-eps)
+    y_pred = np.where(y_pred>0, y_pred, eps)
+    cost = {'tp': 5,'tn': 0, 'fp': -25, 'fn': -5}
+    res = (y_true - y_pred).astype("float")
+    
+    f  = dist(y_true,y_pred)
+    fp = dist_grad(y_true,y_pred)
+    fpp = dist_hess(y_true,y_pred)
+    y_pred_log = np.log(y_pred)
+    y_pred_minus_log = np.log(1 - y_pred)
+    
+    grad  = - cost['tp'] * y_true * [ -fp * y_pred_log + (1-f)/y_pred]
+    grad -= cost['fp'] * y_true * [fp * y_pred_log + f/y_pred]
+    grad -= cost['fn'] * (1 - y_true) * [fp * y_pred_minus_log - f/(1-y_pred)]
+    grad += cost['tn'] * (1 - y_true) * [-fp * y_pred_minus_log + (1-f)/(1-y_pred)]
+    
+    hess  = -cost['tp'] * y_true * [fpp * y_pred_log + 2*fp/y_pred-(1-f)/y_pred**2]
+    hess += cost['fp'] * y_true * [fpp * y_pred_log + 2*fp/y_pred +f/y_pred**2]
+    hess += cost['fn'] * (1-y_true) * [fpp*y_pred_minus_log + 2*fp/(1-y_pred) + f/(1-y_pred)**2]
+    hess -= cost['tn'] * (1-y_true) * [fpp*y_pred_minus_log + 2*fp/(1-y_pred) - (1-f)/(1-y_pred)**2]
+    return pd.Series(np.array(grad).squeeze()), -pd.Series(np.array(hess).squeeze())
+
+
+def custom_loss2(y_true, y_pred):
+    eps = 10**(-8)
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    y_pred = np.where(y_pred<1, y_pred, 1-eps)
+    y_pred = np.where(y_pred>0, y_pred, eps)
+    grad = - y_true / y_pred + (1-y_true) /(1-y_pred)
+    hess = y_true / y_pred**2 + (1-y_true) /(1-y_pred)**2
+    return pd.Series(grad.squeeze()), pd.Series(hess.squeeze())
