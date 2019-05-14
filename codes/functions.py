@@ -6,13 +6,17 @@
 # feval (callable or None, optional (default=None)) – Customized evaluation function. Should accept two parameters: preds, train_data, and return (eval_name, eval_result, is_higher_better) or list of such tuples. https://lightgbm.readthedocs.io/en/latest/Python-API.html
 
 from sklearn.metrics import confusion_matrix
+import numpy as np
 def prediction_reward(y_true, y_preds):
         preds_labels = y_preds > 0.5
         tn, fp, fn, tp = confusion_matrix(y_true = y_true, y_pred = preds_labels).ravel()
         costs = tn*0.0 + fp*(-25.0) + fn*(-5.0) + tp*(5.0)
         return 'profit', costs, True
-    
-    
+def prediction_reward_xgb(y_preds, y_true):
+        preds_labels = np.array(y_preds) > 0.5
+        tn, fp, fn, tp = confusion_matrix(y_true = y_true.get_label(), y_pred = preds_labels).ravel()
+        costs = tn*0.0 + fp*(-25.0) + fn*(-5.0) + tp*(5.0)
+        return 'profit', costs
     
 ########### FUNCTION FOR PROFIT MEASURE WITH CUTOFF PARAMETER
 
@@ -210,12 +214,15 @@ if False:
         return y * 0
 
 def custom_loss(y_true, y_pred):
-    eps = 10**(-4)
+    eps = 10**(-8)
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
     
-    y_pred = np.where(y_pred<1, y_pred, 1-eps)
-    y_pred = np.where(y_pred>0, y_pred, eps)
+    #y_pred = np.where(y_pred<1, y_pred, 1-eps)
+    #y_pred = np.where(y_pred>0, y_pred, eps)
+    y_pred = np.where(y_pred<1, y_pred, 1)
+    y_pred = np.where(y_pred>0, y_pred, 0)
+    
     cost = {'tp': 5,'tn': 0, 'fp': -25, 'fn': -5}
     res = (y_true - y_pred).astype("float")
     
@@ -234,8 +241,36 @@ def custom_loss(y_true, y_pred):
     hess += cost['fp'] * y_true * [fpp * y_pred_log + 2*fp/y_pred +f/y_pred**2]
     hess += cost['fn'] * (1-y_true) * [fpp*y_pred_minus_log + 2*fp/(1-y_pred) + f/(1-y_pred)**2]
     hess -= cost['tn'] * (1-y_true) * [fpp*y_pred_minus_log + 2*fp/(1-y_pred) - (1-f)/(1-y_pred)**2]
-    return pd.Series(np.array(grad).squeeze()), -pd.Series(np.array(hess).squeeze())
-
+    return pd.Series(np.array(grad).squeeze()), pd.Series(np.array(hess).squeeze())
+def custom_loss3(y_true, y_pred):
+    eps = 10**(-8)
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
+    #y_pred = np.where(y_pred<1, y_pred, 1-eps)
+    #y_pred = np.where(y_pred>0, y_pred, eps)
+    y_pred = np.where(y_pred<1, y_pred, 1)
+    y_pred = np.where(y_pred>0, y_pred, 0)
+    
+    cost = {'tp': 5,'tn': 0, 'fp': -25, 'fn': -5}
+    res = (y_true - y_pred).astype("float")
+    
+    f  = dist(y_true,y_pred)
+    fp = dist_grad(y_true,y_pred)
+    fpp = dist_hess(y_true,y_pred)
+    y_pred_log = np.log(y_pred)
+    y_pred_minus_log = np.log(1 - y_pred)
+    
+    grad  = - cost['tp'] * y_true * [ -fp * y_pred_log + (1-f)/y_pred]
+    grad -= cost['fp'] * y_true * [fp * y_pred_log + f/y_pred]
+    grad -= cost['fn'] * (1 - y_true) * [fp * y_pred_minus_log - f/(1-y_pred)]
+    grad += cost['tn'] * (1 - y_true) * [-fp * y_pred_minus_log + (1-f)/(1-y_pred)]
+    
+    hess  = -cost['tp'] * y_true * [fpp * y_pred_log + 2*fp/y_pred-(1-f)/y_pred**2]
+    hess += cost['fp'] * y_true * [fpp * y_pred_log + 2*fp/y_pred +f/y_pred**2]
+    hess += cost['fn'] * (1-y_true) * [fpp*y_pred_minus_log + 2*fp/(1-y_pred) + f/(1-y_pred)**2]
+    hess -= cost['tn'] * (1-y_true) * [fpp*y_pred_minus_log + 2*fp/(1-y_pred) - (1-f)/(1-y_pred)**2]
+    return pd.Series(np.array(grad).squeeze()), pd.Series(np.array(hess).squeeze())
 
 def custom_loss2(y_true, y_pred):
     eps = 10**(-8)
