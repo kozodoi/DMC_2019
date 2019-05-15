@@ -6,6 +6,7 @@
 # feval (callable or None, optional (default=None)) – Customized evaluation function. Should accept two parameters: preds, train_data, and return (eval_name, eval_result, is_higher_better) or list of such tuples. https://lightgbm.readthedocs.io/en/latest/Python-API.html
 
 from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import StratifiedKFold
 import numpy as np
 def prediction_reward(y_true, y_preds):
         preds_labels = y_preds > 0.5
@@ -17,7 +18,7 @@ def prediction_reward_xgb(y_preds, y_true):
         tn, fp, fn, tp = confusion_matrix(y_true = y_true.get_label(), y_pred = preds_labels).ravel()
         costs = tn*0.0 + fp*(-25.0) + fn*(-5.0) + tp*(5.0)
         return 'profit', costs
-    
+
 ########### FUNCTION FOR PROFIT MEASURE WITH CUTOFF PARAMETER
 
 # can use after modeling for threshold optimization
@@ -29,14 +30,14 @@ def recompute_reward(y_true, y_preds, cutoff = 0.5):
         tn, fp, fn, tp = confusion_matrix(y_true = y_true, y_pred = preds_labels).ravel()
         costs = tn*0.0 + fp*(-25.0) + fn*(-5.0) + tp*(5.0)
         return costs
-    
-    
-    
+
+
+
 ########### FUNCTION FOR WEIGHTED LOG-LOSS OBJECTIVE
 
 # false positive is 5 times worse than false negative
 # logsloss for LGB that penalizes false positives more severly
-    
+
 def weighted_logloss_train(y_true, y_preds):
     beta = 5
     p = 1. / (1. + np.exp(-y_preds))
@@ -45,15 +46,15 @@ def weighted_logloss_train(y_true, y_preds):
     hess = p * (1 - p) * (beta + y - beta*y)
     return grad, hess
 
-def weighted_logloss_eval(y_true, y_preds): 
+def weighted_logloss_eval(y_true, y_preds):
     beta = 5
     p = 1. / (1. + np.exp(-y_preds))
     y = y_true
     val = -y * np.log(p) - beta * (1 - y) * np.log(1 - p)
     return 'weighted logloss', np.sum(val), False
-    
 
-    
+
+
 ########### FUNCTION FOR COUNTING MISSINGS
 
 # computes missings per variable (count, %)
@@ -74,44 +75,44 @@ def count_missings(data):
 # averages predictions over the created samples
 
 def predict_proba_with_tta(X_test, model, num_iteration, alpha = 0.01, n = 4, seed = 0):
-    
+
     # set random seed
     np.random.seed(seed = seed)
-    
+
     # original prediction
     preds = model.predict_proba(X_test, num_iteration = num_iteration)[:, 1] / (n + 1)
-     
+
     # select numeric features
     num_vars = [var for var in X_test.columns if X_test[var].dtype != "object"]
-    
+
     # synthetic predictions
     for i in range(n):
-        
+
         # copy data
         X_new = X_test.copy()
-                  
+
         # introduce noise
         for var in num_vars:
             X_new[var] = X_new[var] + alpha * np.random.normal(0, 1, size = len(X_new)) * X_new[var].std()
-            
+
         # predict probss
         preds_new = model.predict_proba(X_new, num_iteration = num_iteration)[:, 1]
         preds += preds_new / (n + 1)
-    
+
     # return probs
     return preds
 
 
 
 
-##### FUNCTION FOR MEAN TARGET ENCODING 
+##### FUNCTION FOR MEAN TARGET ENCODING
 
 # replaces factors with mean target values per value
 # training data: encoding using internal CV
 # validation and test data: encoding using  training data
-
+from sklearn.model_selection import StratifiedKFold
 def mean_target_encoding(train, valid, test, features, target, folds = 5):
-
+    from sklearn.model_selection import StratifiedKFold
     ##### TRAINING
 
     # cross-validation
@@ -149,7 +150,7 @@ def mean_target_encoding(train, valid, test, features, target, folds = 5):
 
 
     ##### TEST
-    
+
     # copy data
     tmp_test = test.copy()
 
@@ -157,13 +158,13 @@ def mean_target_encoding(train, valid, test, features, target, folds = 5):
     for var in features:
         means = tmp_test[var].map(train.groupby(var)[target].mean())
         tmp_test[name] = means
-        
-        
+
+
     ##### CORRECTIONS
 
     # remove target
     del train[target], valid[target]
-    
+
     # remove factors
     for var in features:
         del train[var], valid[var], tmp_test[var]
@@ -188,7 +189,7 @@ class CustomMetric(object):
         # approxes - list of list-like objects (one object per approx dimension)
         # target - list-like object
         # weight - list-like object, can be None
-        
+
         y_true = np.array([int(i) for i in target])
         y_preds = np.array([i for i in approxes[0]])
         res = prediction_reward(y_true, y_preds)[1]
@@ -203,7 +204,7 @@ def dist(x,y):
 def dist_grad(x,y):
     return -2*(x-y)
 def dist_hess(x,y):
-    return 2 + y * 0 
+    return 2 + y * 0
 
 if False:
     def dist(x,y):
@@ -217,26 +218,26 @@ def custom_loss(y_true, y_pred):
     eps = 10**(-8)
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
-    
+
     #y_pred = np.where(y_pred<1, y_pred, 1-eps)
     #y_pred = np.where(y_pred>0, y_pred, eps)
     y_pred = np.where(y_pred<1, y_pred, 1)
     y_pred = np.where(y_pred>0, y_pred, 0)
-    
+
     cost = {'tp': 5,'tn': 0, 'fp': -25, 'fn': -5}
     res = (y_true - y_pred).astype("float")
-    
+
     f  = dist(y_true,y_pred)
     fp = dist_grad(y_true,y_pred)
     fpp = dist_hess(y_true,y_pred)
     y_pred_log = np.log(y_pred)
     y_pred_minus_log = np.log(1 - y_pred)
-    
+
     grad  = - cost['tp'] * y_true * [ -fp * y_pred_log + (1-f)/y_pred]
     grad -= cost['fp'] * y_true * [fp * y_pred_log + f/y_pred]
     grad -= cost['fn'] * (1 - y_true) * [fp * y_pred_minus_log - f/(1-y_pred)]
     grad += cost['tn'] * (1 - y_true) * [-fp * y_pred_minus_log + (1-f)/(1-y_pred)]
-    
+
     hess  = -cost['tp'] * y_true * [fpp * y_pred_log + 2*fp/y_pred-(1-f)/y_pred**2]
     hess += cost['fp'] * y_true * [fpp * y_pred_log + 2*fp/y_pred +f/y_pred**2]
     hess += cost['fn'] * (1-y_true) * [fpp*y_pred_minus_log + 2*fp/(1-y_pred) + f/(1-y_pred)**2]
@@ -246,26 +247,26 @@ def custom_loss3(y_true, y_pred):
     eps = 10**(-8)
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
-    
+
     #y_pred = np.where(y_pred<1, y_pred, 1-eps)
     #y_pred = np.where(y_pred>0, y_pred, eps)
     y_pred = np.where(y_pred<1, y_pred, 1)
     y_pred = np.where(y_pred>0, y_pred, 0)
-    
+
     cost = {'tp': 5,'tn': 0, 'fp': -25, 'fn': -5}
     res = (y_true - y_pred).astype("float")
-    
+
     f  = dist(y_true,y_pred)
     fp = dist_grad(y_true,y_pred)
     fpp = dist_hess(y_true,y_pred)
     y_pred_log = np.log(y_pred)
     y_pred_minus_log = np.log(1 - y_pred)
-    
+
     grad  = - cost['tp'] * y_true * [ -fp * y_pred_log + (1-f)/y_pred]
     grad -= cost['fp'] * y_true * [fp * y_pred_log + f/y_pred]
     grad -= cost['fn'] * (1 - y_true) * [fp * y_pred_minus_log - f/(1-y_pred)]
     grad += cost['tn'] * (1 - y_true) * [-fp * y_pred_minus_log + (1-f)/(1-y_pred)]
-    
+
     hess  = -cost['tp'] * y_true * [fpp * y_pred_log + 2*fp/y_pred-(1-f)/y_pred**2]
     hess += cost['fp'] * y_true * [fpp * y_pred_log + 2*fp/y_pred +f/y_pred**2]
     hess += cost['fn'] * (1-y_true) * [fpp*y_pred_minus_log + 2*fp/(1-y_pred) + f/(1-y_pred)**2]
